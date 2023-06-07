@@ -7,7 +7,6 @@ Created on Sat May 27 17:21:25 2023
 import numpy as np
 import tensorflow as tf
 import matplotlib.pyplot as plt
-from tqdm import tqdm
 import os
 
 trained_model_dir = "H:/Kaggle Competitions/HuBMAP/hubmap-hacking-the-human-vasculature/trained_models/20230527_UNet_T1/model_ckpt"

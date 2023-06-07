@@ -66,7 +66,7 @@ def mse_per_sample(y_true, y_pred):
 def loss_func_per_sample(y_true, y_pred):
     y_true = tf.cast(y_true, tf.float32)
     y_pred = tf.cast(y_pred, tf.float32)
-    loss = mse_per_sample(y_true, y_pred) * 0.7 + dice_coef_loss_per_sample(y_true, y_pred) * 0.3
+    loss = mse_per_sample(y_true, y_pred) #* 0.7 + dice_coef_loss_per_sample(y_true, y_pred) * 0.3
     return tf.cast(loss, tf.float32)
 
 # Model saving
@@ -100,18 +100,42 @@ def save_model(model_save_dir, model_to_save):
 def plot_KPI():
     print()
 
+def decayed_learning_rate(initial_learning_rate, decay_rate, decay_steps, step):
+    return initial_learning_rate * (decay_rate ** (step / decay_steps))
+
 BATCH_SIZE = 4
 GLOBAL_BATCH_SIZE = BATCH_SIZE * strategy.num_replicas_in_sync
 EPOCH = 100
+
+# Learning rate
+INITIAL_LR = 0.001
+# Mode
+ENABLE_SC_LR_DECAY = True
+ENABLE_CDT_LR_DECAY = True
+# Scheduled
+DECAY_STEP_SC = 1
+DECAY_RATE_SC = 0.5
+STAIRCASE = True
+# Conditional
+DECAY_RATE_CDT = 0.5
+
+# Optimizer
 with strategy.scope():
-    OPTIMIZER = mixed_precision.LossScaleOptimizer(tf.keras.optimizers.SGD())
+    if ENABLE_SC_LR_DECAY:
+        lr_decay_schedule = tf.keras.optimizers.schedules.ExponentialDecay(initial_learning_rate = INITIAL_LR,
+                                                                           decay_steps = DECAY_STEP_SC,
+                                                                           decay_rate = DECAY_RATE_SC,
+                                                                           staircase = STAIRCASE)
+        OPTIMIZER = mixed_precision.LossScaleOptimizer(tf.keras.optimizers.SGD(learning_rate = lr_decay_schedule))
+    else:
+        OPTIMIZER = mixed_precision.LossScaleOptimizer(tf.keras.optimizers.SGD())
 
 # Early stop
 ES_MAX_EPOCH = 25
 ES_MIN_VAR = 0.001
 
 # Model saving
-save_dir, save_best_dir, save_final_dir, save_every_dir = create_save_model_dir(model_name = "UNET_512_3", remark="MSE_DICE")
+save_dir, save_best_dir, save_final_dir, save_every_dir = create_save_model_dir(model_name = "UNET_512_3", remark="LR_TEST")
 SAVE_BEST = True
 SAVE_EVERY = False
 SAVE_FINAL = True
@@ -285,6 +309,10 @@ for epoch in range(0, EPOCH):
 
     print("Validation loss: %.4f" % (float(val_loss),))
     print("Time taken: %.2fs" % (time.time() - start_time))
+    print("Current learning rate: %.7f" % float(decayed_learning_rate(initial_learning_rate = INITIAL_LR,
+                                                                      decay_rate = DECAY_RATE_SC,
+                                                                      decay_steps = DECAY_STEP_SC,
+                                                                      step = epoch)))
 
     # Callbacks ##############################################################
     if last_n_val_loss != [] and val_loss + ES_MIN_VAR <= min(last_n_val_loss):
