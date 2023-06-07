@@ -110,7 +110,7 @@ EPOCH = 100
 # Learning rate
 INITIAL_LR = 0.001
 # Mode
-ENABLE_SC_LR_DECAY = True
+ENABLE_SC_LR_DECAY = False
 ENABLE_CDT_LR_DECAY = True
 # Scheduled
 DECAY_STEP_SC = 1
@@ -308,11 +308,21 @@ for epoch in range(0, EPOCH):
     val_loss = intermediate_test_loss / num_test_batches
 
     print("Validation loss: %.4f" % (float(val_loss),))
+
+    # Learning rate ##########################################################
+    if ENABLE_SC_LR_DECAY:
+        current_lr = float(decayed_learning_rate(initial_learning_rate = INITIAL_LR,
+                                                 decay_rate = DECAY_RATE_SC,
+                                                 decay_steps = DECAY_STEP_SC,
+                                                 step = epoch))
+    else:
+        current_lr = float(OPTIMIZER.learning_rate.value())
+
+    print("Current learning rate: %.7f" % float(current_lr))
+
     print("Time taken: %.2fs" % (time.time() - start_time))
-    print("Current learning rate: %.7f" % float(decayed_learning_rate(initial_learning_rate = INITIAL_LR,
-                                                                      decay_rate = DECAY_RATE_SC,
-                                                                      decay_steps = DECAY_STEP_SC,
-                                                                      step = epoch)))
+
+    OPTIMIZER.learning_rate.assign(current_lr * DECAY_RATE_CDT)
 
     # Callbacks ##############################################################
     if last_n_val_loss != [] and val_loss + ES_MIN_VAR <= min(last_n_val_loss):
