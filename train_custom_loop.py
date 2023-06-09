@@ -12,6 +12,7 @@ import time
 import datetime
 import shutil
 from tqdm import tqdm
+import matplotlib.pyplot as plt
 
 # Import tensorflow
 import tensorflow as tf
@@ -97,8 +98,15 @@ def save_model(model_save_dir, model_to_save):
         os.mkdir(model_save_dir)
     model_to_save.save(model_save_dir)
 
-def plot_KPI():
-    print()
+def plot_KPI(x ,y):
+    plt.figure(dpi=300)
+    if x and y:
+        plt.plot(x, y)
+    elif x:
+        plt.plot(x)
+    else:
+        plt.plot(y)
+    plt.show()
 
 def decayed_learning_rate(initial_learning_rate, decay_rate, decay_steps, step):
     return initial_learning_rate * (decay_rate ** (step / decay_steps))
@@ -117,7 +125,9 @@ DECAY_STEP_SC = 1
 DECAY_RATE_SC = 0.5
 STAIRCASE = True
 # Conditional
-DECAY_RATE_CDT = 0.5
+DECAY_RATE_CDT = 0.75
+DECAY_MIN_VAR = 0.001
+DECAY_MAX_EPOCH = 5
 
 # Optimizer
 with strategy.scope():
@@ -132,7 +142,7 @@ with strategy.scope():
 
 # Early stop
 ES_MAX_EPOCH = 25
-ES_MIN_VAR = 0.001
+ES_MIN_VAR = 0.00001
 
 # Model saving
 save_dir, save_best_dir, save_final_dir, save_every_dir = create_save_model_dir(model_name = "UNET_512_3", remark="LR_TEST")
@@ -280,6 +290,7 @@ with strategy.scope():
 hist_train_loss = []
 hist_val_loss = []
 last_n_val_loss = []
+last_n_val_loss_decay = []
 best_val_loss = 1.0
 
 for epoch in range(0, EPOCH):
@@ -295,6 +306,8 @@ for epoch in range(0, EPOCH):
         num_batches += 1
 
     train_loss = intermediate_train_loss / num_batches
+    hist_train_loss.append(float(train_loss))
+    plot_KPI(x = None, y = hist_train_loss)
     print("Training loss: %.4f" % (float(train_loss),))
 
     # Test ###################################################################
@@ -306,7 +319,8 @@ for epoch in range(0, EPOCH):
         num_test_batches += 1
 
     val_loss = intermediate_test_loss / num_test_batches
-
+    hist_val_loss.append(float(val_loss))
+    plot_KPI(x = None, y = hist_val_loss)
     print("Validation loss: %.4f" % (float(val_loss),))
 
     # Learning rate ##########################################################
@@ -319,10 +333,7 @@ for epoch in range(0, EPOCH):
         current_lr = float(OPTIMIZER.learning_rate.value())
 
     print("Current learning rate: %.7f" % float(current_lr))
-
     print("Time taken: %.2fs" % (time.time() - start_time))
-
-    OPTIMIZER.learning_rate.assign(current_lr * DECAY_RATE_CDT)
 
     # Callbacks ##############################################################
     if last_n_val_loss != [] and val_loss + ES_MIN_VAR <= min(last_n_val_loss):
@@ -337,3 +348,15 @@ for epoch in range(0, EPOCH):
     if len(last_n_val_loss) > ES_MAX_EPOCH:
         print(f"Validation loss does not improve over the last {ES_MAX_EPOCH} epochs, ending the training process...")
         break
+
+    # Learning rate conditional decay
+    if last_n_val_loss_decay != [] and val_loss + ES_MIN_VAR <= min(last_n_val_loss_decay):
+        last_n_val_loss_decay = []
+    last_n_val_loss_decay.append(val_loss)
+
+    if len(last_n_val_loss_decay) > DECAY_MAX_EPOCH:
+        last_n_val_loss_decay = []
+        decayed_lr = current_lr * DECAY_RATE_CDT
+        OPTIMIZER.learning_rate.assign(decayed_lr)
+        print(f"Validation loss does not improve over the last {DECAY_MAX_EPOCH} epochs, learning rate decays to {decayed_lr}")
+
