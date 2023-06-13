@@ -113,7 +113,7 @@ def decayed_learning_rate(initial_learning_rate, decay_rate, decay_steps, step):
 
 BATCH_SIZE = 4
 GLOBAL_BATCH_SIZE = BATCH_SIZE * strategy.num_replicas_in_sync
-EPOCH = 100
+EPOCH = 500
 
 # Learning rate
 INITIAL_LR = 0.001
@@ -142,10 +142,10 @@ with strategy.scope():
 
 # Early stop
 ES_MAX_EPOCH = 25
-ES_MIN_VAR = 0.00001
+ES_MIN_VAR = 0.0001
 
 # Model saving
-save_dir, save_best_dir, save_final_dir, save_every_dir = create_save_model_dir(model_name = "UNET_512_3", remark="LR_TEST")
+save_dir, save_best_dir, save_final_dir, save_every_dir = create_save_model_dir(model_name = "UNET_512_3", remark="")
 SAVE_BEST = True
 SAVE_EVERY = False
 SAVE_FINAL = True
@@ -336,9 +336,10 @@ for epoch in range(0, EPOCH):
     print("Time taken: %.2fs" % (time.time() - start_time))
 
     # Callbacks ##############################################################
-    if last_n_val_loss != [] and val_loss + ES_MIN_VAR <= min(last_n_val_loss):
+    if last_n_val_loss != [] and val_loss + ES_MIN_VAR <= best_val_loss:
         best_val_loss = val_loss
         last_n_val_loss = []
+        last_n_val_loss_decay = []
         # Save best only
         save_model(model_save_dir = save_best_dir, model_to_save = model)
         print(f"Saving the best solution so far with validation loss = {best_val_loss}")
