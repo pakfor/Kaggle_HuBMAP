@@ -145,7 +145,7 @@ ES_MAX_EPOCH = 25
 ES_MIN_VAR = 0.0001
 
 # Model saving
-save_dir, save_best_dir, save_final_dir, save_every_dir = create_save_model_dir(model_name = "UNET_512_3", remark="")
+save_dir, save_best_dir, save_final_dir, save_every_dir = create_save_model_dir(model_name = "UNET_512_3_multidim", remark="multi_dim_test")
 SAVE_BEST = True
 SAVE_EVERY = False
 SAVE_FINAL = True
@@ -156,7 +156,7 @@ def dtype_cast(array, new_dtype):
     return array.astype(new_dtype)
 
 # Import from NPY
-base_dir = "H:/Kaggle Competitions/HuBMAP/hubmap-hacking-the-human-vasculature/train_prep"
+base_dir = "H:/Kaggle Competitions/HuBMAP/hubmap-hacking-the-human-vasculature/multi_class"
 x_train = np.load(f'{base_dir}/x_train.npy')
 y_train = np.load(f'{base_dir}/y_train.npy')
 x_test = np.load(f'{base_dir}/x_test.npy')
@@ -241,6 +241,59 @@ def custom_u_net_512_3():
     
     return model
 
+
+def custom_u_net_512_3_multidim():
+    input = layers.Input(shape=(512,512,3))
+
+    x = layers.Conv2D(64,3,1,padding='same')(input)
+    x = layers.ReLU()(x)
+    x = layers.BatchNormalization()(x)
+    x = custom_u_net_conv_block(x, unit=64, repeat=1)
+    a1 = x
+    x = layers.MaxPooling2D(2,2)(a1)
+
+    x = custom_u_net_conv_block(x, unit=128, repeat=2)
+    a2 = x
+    x = layers.MaxPooling2D(2,2)(a2)
+    
+    x = custom_u_net_conv_block(x, unit=256, repeat=2)
+    a3 = x
+    x = layers.MaxPooling2D(2,2)(a3)
+    
+    x = custom_u_net_conv_block(x, unit=512, repeat=2)
+    a4 = x
+    x = layers.MaxPooling2D(2,2)(a4)
+    
+    x = custom_u_net_conv_block(x, unit=1024, repeat=2)
+    x = layers.BatchNormalization()(x)
+    
+    x = layers.Conv2DTranspose(128,1,2,padding='same')(x)
+    
+    x = layers.concatenate([x,a4],axis=-1)
+    x = custom_u_net_conv_block(x, unit=512, repeat=2)
+    
+    x = layers.Conv2DTranspose(64,1,2,padding='same')(x)
+    
+    x = layers.concatenate([x,a3],axis=-1)
+    x = custom_u_net_conv_block(x, unit=256, repeat=2)
+
+    x = layers.Conv2DTranspose(32,1,2,padding='same')(x)
+    
+    x = layers.concatenate([x,a2],axis=-1)
+    x = custom_u_net_conv_block(x, unit=128, repeat=2)
+
+    x = layers.Conv2DTranspose(16,1,2,padding='same')(x)
+    
+    x = layers.concatenate([x,a1],axis=-1)
+    x = custom_u_net_conv_block(x, unit=64, repeat=2)
+    
+    x = layers.Conv2D(3,1,1,padding='same', activation = 'sigmoid', dtype='float32')(x)
+    
+    model = tf.keras.Model(input,x)
+    model.summary()
+    
+    return model
+
 #%% Training Loop
 
 with strategy.scope():
@@ -286,7 +339,7 @@ def distributed_test_step(dataset_inputs):
     return strategy.reduce(tf.distribute.ReduceOp.SUM, per_replica_losses, axis=None)
 
 with strategy.scope():
-    model = custom_u_net_512_3()
+    model = custom_u_net_512_3_multidim()
 hist_train_loss = []
 hist_val_loss = []
 last_n_val_loss = []
