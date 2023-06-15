@@ -12,12 +12,17 @@ import time
 import datetime
 import shutil
 from tqdm import tqdm
+import pandas as pd
 import matplotlib.pyplot as plt
 
 # Import tensorflow
 import tensorflow as tf
 from tensorflow.keras import layers
 from tensorflow.keras import mixed_precision
+
+# Model definition
+from model_attention_unet import AttentionUNet
+from model_unet import UNet
 
 # Enable FP16 mixed precision training
 policy = mixed_precision.Policy('mixed_float16')
@@ -111,7 +116,7 @@ def plot_KPI(x ,y):
 def decayed_learning_rate(initial_learning_rate, decay_rate, decay_steps, step):
     return initial_learning_rate * (decay_rate ** (step / decay_steps))
 
-BATCH_SIZE = 4
+BATCH_SIZE = 2
 GLOBAL_BATCH_SIZE = BATCH_SIZE * strategy.num_replicas_in_sync
 EPOCH = 500
 
@@ -145,10 +150,14 @@ ES_MAX_EPOCH = 25
 ES_MIN_VAR = 0.0001
 
 # Model saving
-save_dir, save_best_dir, save_final_dir, save_every_dir = create_save_model_dir(model_name = "UNET_512_3_multidim", remark="multi_dim_test")
+save_dir, save_best_dir, save_final_dir, save_every_dir = create_save_model_dir(model_name = "ATTUNET_512_3_multidim", remark="SGD")
 SAVE_BEST = True
 SAVE_EVERY = False
 SAVE_FINAL = True
+
+# Training log
+training_log_save_dir = f"{save_dir}/training_log.csv"
+training_log = {"epoch":[], "learning_rate":[], "training_loss":[], "validation_loss":[]}
 
 #%% Data Import
 
@@ -177,122 +186,6 @@ train_dataset = strategy.experimental_distribute_dataset(train_dataset)
 val_dataset = tf.data.Dataset.from_tensor_slices((x_test, y_test))
 val_dataset = val_dataset.batch(GLOBAL_BATCH_SIZE)
 val_dataset = strategy.experimental_distribute_dataset(val_dataset)
-
-#%% Model Definition
-
-def custom_u_net_conv_block(x, unit=64, ker_size=3, stride=1, padding='same', batch_norm=True, repeat=2):
-    for i in range(0, repeat):
-        x = layers.Conv2D(unit, ker_size, stride, padding=padding)(x)
-        x = layers.ReLU()(x)
-        if batch_norm:
-            x = layers.BatchNormalization()(x)
-    return x
-
-
-def custom_u_net_512_3():
-    input = layers.Input(shape=(512,512,3))
-
-    x = layers.Conv2D(64,3,1,padding='same')(input)
-    x = layers.ReLU()(x)
-    x = layers.BatchNormalization()(x)
-    x = custom_u_net_conv_block(x, unit=64, repeat=1)
-    a1 = x
-    x = layers.MaxPooling2D(2,2)(a1)
-
-    x = custom_u_net_conv_block(x, unit=128, repeat=2)
-    a2 = x
-    x = layers.MaxPooling2D(2,2)(a2)
-    
-    x = custom_u_net_conv_block(x, unit=256, repeat=2)
-    a3 = x
-    x = layers.MaxPooling2D(2,2)(a3)
-    
-    x = custom_u_net_conv_block(x, unit=512, repeat=2)
-    a4 = x
-    x = layers.MaxPooling2D(2,2)(a4)
-    
-    x = custom_u_net_conv_block(x, unit=1024, repeat=2)
-    x = layers.BatchNormalization()(x)
-    
-    x = layers.Conv2DTranspose(128,1,2,padding='same')(x)
-    
-    x = layers.concatenate([x,a4],axis=-1)
-    x = custom_u_net_conv_block(x, unit=512, repeat=2)
-    
-    x = layers.Conv2DTranspose(64,1,2,padding='same')(x)
-    
-    x = layers.concatenate([x,a3],axis=-1)
-    x = custom_u_net_conv_block(x, unit=256, repeat=2)
-
-    x = layers.Conv2DTranspose(32,1,2,padding='same')(x)
-    
-    x = layers.concatenate([x,a2],axis=-1)
-    x = custom_u_net_conv_block(x, unit=128, repeat=2)
-
-    x = layers.Conv2DTranspose(16,1,2,padding='same')(x)
-    
-    x = layers.concatenate([x,a1],axis=-1)
-    x = custom_u_net_conv_block(x, unit=64, repeat=2)
-    
-    x = layers.Conv2D(1,1,1,padding='same', activation = 'sigmoid', dtype='float32')(x)
-    
-    model = tf.keras.Model(input,x)
-    model.summary()
-    
-    return model
-
-
-def custom_u_net_512_3_multidim():
-    input = layers.Input(shape=(512,512,3))
-
-    x = layers.Conv2D(64,3,1,padding='same')(input)
-    x = layers.ReLU()(x)
-    x = layers.BatchNormalization()(x)
-    x = custom_u_net_conv_block(x, unit=64, repeat=1)
-    a1 = x
-    x = layers.MaxPooling2D(2,2)(a1)
-
-    x = custom_u_net_conv_block(x, unit=128, repeat=2)
-    a2 = x
-    x = layers.MaxPooling2D(2,2)(a2)
-    
-    x = custom_u_net_conv_block(x, unit=256, repeat=2)
-    a3 = x
-    x = layers.MaxPooling2D(2,2)(a3)
-    
-    x = custom_u_net_conv_block(x, unit=512, repeat=2)
-    a4 = x
-    x = layers.MaxPooling2D(2,2)(a4)
-    
-    x = custom_u_net_conv_block(x, unit=1024, repeat=2)
-    x = layers.BatchNormalization()(x)
-    
-    x = layers.Conv2DTranspose(128,1,2,padding='same')(x)
-    
-    x = layers.concatenate([x,a4],axis=-1)
-    x = custom_u_net_conv_block(x, unit=512, repeat=2)
-    
-    x = layers.Conv2DTranspose(64,1,2,padding='same')(x)
-    
-    x = layers.concatenate([x,a3],axis=-1)
-    x = custom_u_net_conv_block(x, unit=256, repeat=2)
-
-    x = layers.Conv2DTranspose(32,1,2,padding='same')(x)
-    
-    x = layers.concatenate([x,a2],axis=-1)
-    x = custom_u_net_conv_block(x, unit=128, repeat=2)
-
-    x = layers.Conv2DTranspose(16,1,2,padding='same')(x)
-    
-    x = layers.concatenate([x,a1],axis=-1)
-    x = custom_u_net_conv_block(x, unit=64, repeat=2)
-    
-    x = layers.Conv2D(3,1,1,padding='same', activation = 'sigmoid', dtype='float32')(x)
-    
-    model = tf.keras.Model(input,x)
-    model.summary()
-    
-    return model
 
 #%% Training Loop
 
@@ -339,7 +232,8 @@ def distributed_test_step(dataset_inputs):
     return strategy.reduce(tf.distribute.ReduceOp.SUM, per_replica_losses, axis=None)
 
 with strategy.scope():
-    model = custom_u_net_512_3_multidim()
+    model_builder = AttentionUNet((512, 512, 3), 3)
+    model = model_builder.build()
 hist_train_loss = []
 hist_val_loss = []
 last_n_val_loss = []
@@ -388,6 +282,12 @@ for epoch in range(0, EPOCH):
     print("Current learning rate: %.7f" % float(current_lr))
     print("Time taken: %.2fs" % (time.time() - start_time))
 
+    # Logging ################################################################
+    training_log["epoch"].append(epoch)
+    training_log["learning_rate"].append(current_lr)
+    training_log["training_loss"].append(float(train_loss))
+    training_log["validation_loss"].append(float(val_loss))
+
     # Callbacks ##############################################################
     if last_n_val_loss != [] and val_loss + ES_MIN_VAR <= best_val_loss:
         best_val_loss = val_loss
@@ -414,3 +314,5 @@ for epoch in range(0, EPOCH):
         OPTIMIZER.learning_rate.assign(decayed_lr)
         print(f"Validation loss does not improve over the last {DECAY_MAX_EPOCH} epochs, learning rate decays to {decayed_lr}")
 
+training_log_df = pd.DataFrame(data = training_log)
+training_log_df.to_csv(training_log_save_dir, index=False)
